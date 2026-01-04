@@ -1,35 +1,63 @@
-Adds 1.21.11 support for Staff++.
+name: Build Staff++
 
-Requires:
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
-1.21.11 support staffplusplus-craftbukkit-compatibility#14
-For anyone who need this:
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-How to build when nexus is offline
-Create the file ~/.m2/settings.xml temporarily with:
+    steps:
+      # Checkout the repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-<settings>
-  <profiles>
-    <profile>
-      <id>temp-repo</id>
-      <repositories>
-        <repository>
-          <id>codemc-repo</id>
-          <url>https://repo.codemc.io/repository/maven-public/</url>
-          <layout>default</layout>
-        </repository>
-        <repository>
-          <id>Scarsz-Nexus</id>
-          <url>https://nexus.scarsz.me/content/groups/public/</url>
-        </repository>
-      </repositories>
-    </profile>
-  </profiles>
-  <activeProfiles>
-    <activeProfile>temp-repo</activeProfile>
-  </activeProfiles>
-</settings>
-Build with mvn package
+      # Set up Java
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
 
-Fixes #268
+      # Create temporary Maven settings.xml
+      - name: Create temporary Maven settings
+        run: |
+          mkdir -p ~/.m2
+          cat <<EOF > ~/.m2/settings.xml
+          <settings>
+            <profiles>
+              <profile>
+                <id>temp-repo</id>
+                <repositories>
+                  <repository>
+                    <id>codemc-repo</id>
+                    <url>https://repo.codemc.io/repository/maven-public/</url>
+                    <layout>default</layout>
+                  </repository>
+                  <repository>
+                    <id>Scarsz-Nexus</id>
+                    <url>https://nexus.scarsz.me/content/groups/public/</url>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>temp-repo</activeProfile>
+            </activeProfiles>
+          </settings>
+          EOF
 
+      # Build the plugin
+      - name: Build Staff++
+        run: mvn clean package
+
+      # Upload the resulting plugin jar
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: staffplusplus-plugin
+          path: target/*.jar
