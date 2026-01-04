@@ -1,89 +1,61 @@
-# This workflow will build a Java project with Maven
-# For more information see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-maven
-
-name: MasterBuild
+name: Build Staff++ Plugin
 
 on:
-    push:
-        branches: [ master ]
-    pull_request:
-        branches: [ master ]
-    workflow_dispatch:
-        inputs:
-            backwards_merge:
-                description: 'Merge commit into release branches'
-                required: true
-                default: 'true'
+  push:
+    branches:
+      - main
+  pull_request:
+
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
-            -   uses: actions/checkout@v4
-            -   name: Set up JDK 21
-                uses: actions/setup-java@v4
-                with:
-                    java-version: 21
-                    distribution: zulu
-            -   name: Cache local Maven repository
-                uses: actions/cache@v4
-                with:
-                    path: ~/.m2/repository
-                    key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-                    restore-keys: |
-                        ${{ runner.os }}-maven-
-            -   name: Build with Maven
-                run: mvn -B verify --file pom.xml
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    backwards_merge:
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.backwards_merge == 'true') }}
-        needs: build
-        runs-on: ubuntu-latest
-        steps:
-            -   uses: actions/checkout@v4
-            -   name: Declare some variables
-                id: vars
-                shell: bash
-                run: |
-                    echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
-                    echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+      # Setup Java
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: temurin
 
-            -   name: Commit files
-                shell: bash
-                env:
-                    COMMIT_HASH: ${{ steps.vars.outputs.sha_short }}
-                    GITHUB_TOKEN: ${{ secrets.PAT_STAFF }}
-                run: |
-                    set -e
-                    declare -a VERSIONS=(
-                      1.21.0
-                      1.20.0
-                      1.19.0
-                      1.18.0
-                      1.17.0
-                      1.16.0
-                      1.15.0
-                      1.14.0
-                      1.13.0
-                      1.12.0
-                    )
-                    git clone https://garagepoort:${GITHUB_TOKEN}@github.com/garagepoort/StaffPlusPlus.git
-                    cd StaffPlusPlus
+      # Create temporary Maven settings with custom local repo
+      - name: Setup Maven settings
+        run: |
+          mkdir -p $HOME/.m2
+          cat > $HOME/.m2/settings.xml <<'EOF'
+          <settings>
+            <localRepository>${HOME}/.m2/repo</localRepository>
+            <profiles>
+              <profile>
+                <id>temp-repo</id>
+                <repositories>
+                  <repository>
+                    <id>codemc-repo</id>
+                    <url>https://repo.codemc.io/repository/maven-public/</url>
+                  </repository>
+                  <repository>
+                    <id>scarsz-nexus</id>
+                    <url>https://nexus.scarsz.me/content/groups/public/</url>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>temp-repo</activeProfile>
+            </activeProfiles>
+          </settings>
+          EOF
 
-                    git config --local user.email "action@github.com"
-                    git config --local user.name "GitHub Action"
-                    parents=$(git show --no-patch --format="%P" $COMMIT_HASH)
-                    IFS=' ' read -ra arr <<<"$parents"
-                    for i in "${VERSIONS[@]}"; do
-                      RELEASE_BRANCH="release/$i"
-                      git checkout $RELEASE_BRANCH
-                      git pull
-                      if [ ${#arr[@]} -gt 1 ]
-                      then
-                        git cherry-pick -m 1 $COMMIT_HASH
-                        echo "Merge commit"
-                      else
-                        echo "Normal commit"
-                        git cherry-pick $COMMIT_HASH
-                      fi
-                      git push
-                    done
+      # Install missing dependencies from libs folder
+      - name: Install local JAR dependencies
+        run: |
+          for f in libs/*.jar; do
+            # extract groupId, artifactId, version from file name convention if needed
+            mvn install:install-file -Dfile="$f" -DgroupId=local -DartifactId=$(basename "$f" .jar) -Dversion=1.0 -Dpackaging=jar
+          done
+
+      # Build the project
+      - name: Build with Maven
+        run: mvn clean package -s $HOME/.m2/settings.xml
