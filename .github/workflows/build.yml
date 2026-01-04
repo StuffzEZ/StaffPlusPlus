@@ -58,7 +58,7 @@ jobs:
 
       # Upload the resulting plugin jar
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: staffplusplus-plugin
           path: target/*.jar
